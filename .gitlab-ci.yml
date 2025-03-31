@@ -1,0 +1,113 @@
+stages:
+  - test
+  - build
+  - deploy
+# Test Stage
+test:
+  stage: test
+  image: dmz-kzopa-jfrog.pfizer.com:8443/docker/node:18
+  tags:
+    - george-test
+  variables:
+    NODE_EXTRA_CA_CERTS: /usr/local/share/ca-certificates/artifactory_chain.crt
+  before_script:
+    - mkdir -p /usr/local/share/ca-certificates/
+    - echo "$ARTIFACTORY_CA_CERT2" | base64 -d > /usr/local/share/ca-certificates/artifactory_chain.crt
+    - npm config set cafile /usr/local/share/ca-certificates/artifactory_chain.crt
+    - echo "registry=https://dmz-kzopa-jfrog.pfizer.com:8443/artifactory/api/npm/npm/" > ~/.npmrc
+    - echo "always-auth=true" >> ~/.npmrc
+    - echo "//dmz-kzopa-jfrog.pfizer.com:8443/:_authToken=${NPM_AUTH_TOKEN}" >> ~/.npmrc
+  script:
+    - npm config set loglevel verbose
+    - npm install
+    - npm run test
+build:
+  stage: build
+  image: dmz-kzopa-jfrog.pfizer.com:8443/docker/buildah/stable:latest
+  tags:
+    - george-test
+  before_script:
+    - mkdir -p /etc/containers/certs.d/dmz-kzopa-jfrog.pfizer.com:8443
+    - echo "$ARTIFACTORY_CA_CERT2" | base64 -d > /etc/containers/certs.d/dmz-kzopa-jfrog.pfizer.com:8443/ca.crt
+    - mkdir -p /etc/containers
+    - echo '[registries.insecure]' > /etc/containers/registries.conf
+    - echo 'registries = ["kzopa-jfrog.pfizer.com:8081"]' >> /etc/containers/registries.conf
+  script:
+    - set -x
+    - set -e
+    - |
+      if [ -z "$DOCKER_REGISTRY_USER" ] || [ -z "$DOCKER_REGISTRY_PASSWORD" ]; then
+        echo "Error: DOCKER_REGISTRY_USER or DOCKER_REGISTRY_PASSWORD is empty"
+        exit 1
+      fi
+      echo "$DOCKER_REGISTRY_PASSWORD" | buildah login -u "$DOCKER_REGISTRY_USER" --password-stdin dmz-kzopa-jfrog.pfizer.com:8443 || { echo "Login to 8443 failed"; exit 1; }
+      if [ -z "$DOCKER_REGISTRY_USER_ELAN" ] || [ -z "$DOCKER_REGISTRY_PASSWORD_ELAN" ]; then
+        echo "Error: DOCKER_REGISTRY_USER_ELAN or DOCKER_REGISTRY_PASSWORD_ELAN is empty"
+        exit 1
+      fi
+      echo "$DOCKER_REGISTRY_PASSWORD_ELAN" | buildah login -u "$DOCKER_REGISTRY_USER_ELAN" --password-stdin kzopa-jfrog.pfizer.com:8081 || { echo "Login to 8081 failed"; exit 1; }
+      buildah bud \
+        --build-arg NPM_AUTH_TOKEN="$NPM_AUTH_TOKEN" \
+        --build-arg ARTIFACTORY_CA_CERT2="$ARTIFACTORY_CA_CERT2" \
+        -t kzopa-jfrog.pfizer.com:8081/docker/aura-frontend:$CI_COMMIT_SHA \
+        .
+      buildah tag kzopa-jfrog.pfizer.com:8081/docker/aura-frontend:$CI_COMMIT_SHA kzopa-jfrog.pfizer.com:8081/docker/aura-frontend:latest
+      buildah push kzopa-jfrog.pfizer.com:8081/docker/aura-frontend:$CI_COMMIT_SHA
+      buildah push kzopa-jfrog.pfizer.com:8081/docker/aura-frontend:latest
+  after_script:
+    - buildah logout dmz-kzopa-jfrog.pfizer.com:8443
+    - buildah logout kzopa-jfrog.pfizer.com:8081
+# Deploy Stage
+deploy:
+  stage: deploy
+  image: dmz-kzopa-jfrog.pfizer.com:8443/docker/node:18
+  tags:
+    - george-test
+  only:
+    - master  # Deploy only on master, can adjust if needed
+  variables:
+    GIT_STRATEGY: none
+    SSH_PORT: 8221
+  before_script:
+    - apt-get update || echo "Apt update failed, but continuing"
+    - apt-get install -y openssh-client
+    - mkdir -p ~/.ssh
+    - echo "$SSH_PRIVATE_KEY" | tr -d "\r" > ~/.ssh/id_rsa
+    - chmod 600 ~/.ssh/id_rsa
+    - ssh-keyscan -H -p "$SSH_PORT" "$DESTINATION_VM_IP" >> ~/.ssh/known_hosts
+  script:
+    - echo "Deploying..."
+    - set -x
+    - |
+      ssh -T -p "$SSH_PORT" -i ~/.ssh/id_rsa "$DEPLOY_USER@$DESTINATION_VM_IP" \
+        DOCKER_REGISTRY_USER_ELAN="$DOCKER_REGISTRY_USER_ELAN" \
+        DOCKER_REGISTRY_PASSWORD_ELAN="$DOCKER_REGISTRY_PASSWORD_ELAN" \
+        bash -s <<'ENDSSH'
+      set -x
+      set -e
+      mkdir -p ~/.config/containers
+      echo '[registries.insecure]' > ~/.config/containers/registries.conf
+      echo 'registries = ["kzopa-jfrog.pfizer.com:8081"]' >> ~/.config/containers/registries.conf
+      export REGISTRY_HOST_ELAN="kzopa-jfrog.pfizer.com:8081"
+      export IMAGE_NAME="kzopa-jfrog.pfizer.com:8081/docker/aura-frontend:latest"
+      echo "Variables set: REGISTRY_HOST_ELAN=$REGISTRY_HOST_ELAN, IMAGE_NAME=$IMAGE_NAME"
+      if [ -z "$DOCKER_REGISTRY_USER_ELAN" ] || [ -z "$DOCKER_REGISTRY_PASSWORD_ELAN" ]; then
+        echo "Error: DOCKER_REGISTRY_USER_ELAN or DOCKER_REGISTRY_PASSWORD_ELAN is empty"
+        exit 1
+      fi
+      echo "$DOCKER_REGISTRY_PASSWORD_ELAN" | podman login "$REGISTRY_HOST_ELAN" --username "$DOCKER_REGISTRY_USER_ELAN" --password-stdin
+      echo "Podman login succeeded"
+      podman pull "$IMAGE_NAME"
+      echo "Image pulled"
+      podman stop aura-frontend || echo "No container to stop"
+      podman rm aura-frontend || echo "No container to remove"
+      echo "Old container cleaned up"
+      podman run -d --name aura-frontend --restart unless-stopped -p 0.0.0.0:3001:80 "$IMAGE_NAME"
+      echo "Container started"
+      sleep 2
+      podman ps -a
+      podman logs aura-frontend || echo "No logs available yet"
+      echo "Deployment completed"
+      exit 0
+      ENDSSH
+    - echo "SSH command completed with exit code $?"

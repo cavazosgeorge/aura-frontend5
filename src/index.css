@@ -1,0 +1,17 @@
+:root {
+  font-family: system-ui, Helvetica, Arial, sans-serif;
+  box-sizing: border-box;
+}
+
+/* Reset margin for body element */
+body {
+  margin: 0;
+  padding: 0;
+}
+
+h1 {
+  font-size: 3.2em;
+  line-height: 1.1;
+}
+
+
