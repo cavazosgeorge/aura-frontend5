@@ -59,9 +59,10 @@ function Navbar() {
         boxShadow="lg"
         borderBottomWidth="1px"
         borderBottomColor={dividerColor}
-        position="relative"
+        position="fixed"
+        top="0"
+        zIndex="1100" 
         overflow="hidden"
-        zIndex="1" 
       >
         {/* Background subtle pattern */}
         <Box
@@ -108,5 +109,3 @@ function Navbar() {
 }
 
 export default Navbar;
-
-
