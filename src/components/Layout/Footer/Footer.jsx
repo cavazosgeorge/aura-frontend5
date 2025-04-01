@@ -1,4 +1,3 @@
-
 import React from "react";
 import { Link as RouterLink, useLocation } from "react-router-dom";
 import {
@@ -32,7 +31,7 @@ import {
 } from "react-icons/fi";
 
 const NetZeroLogo = () => (
-  <Box width="150px" height="100px"> 
+  <Box width="150px" height="50px"> 
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 200" style={{ backgroundColor: 'transparent' }}>
       {/* NetZero Text with Gradient */}
       <defs>
@@ -247,7 +246,7 @@ function Footer() {
           </VStack>
         </SimpleGrid>
         
-        <Divider borderColor={dividerColor} mb={2} />
+        <Divider borderColor={dividerColor} mb={0} />
         
         <Flex 
           direction={{ base: "column", md: "row" }}
@@ -263,28 +262,28 @@ function Footer() {
           align="center" 
           justify="space-between" 
           width="100%" 
-          mb={4}
+          mb={1}
           wrap="wrap"
-          gap={4}
-          py={1}
+          gap={1}
+          py={0}
         >
-          <NetZeroLogo />
+          <NetZeroLogo my={{ base: 0, lg: 2 }} />
           
           <Flex 
             justify="center" 
             align="center" 
             wrap="wrap" 
-            gap={{ base: 4, md: 10 }}
+            gap={6}
           >
             {environmentalStats.map((stat, index) => (
               <HStack 
                 key={index} 
-                spacing={2}
+                spacing={1}
                 align="center"
                 minW="120px"
               >
-                <Icon as={stat.icon} color={iconColor} boxSize={4} />
-                <Text fontSize="md" fontWeight="bold" color={statValueColor}>
+                <Icon as={stat.icon} color={iconColor} boxSize={3} />
+                <Text fontSize="sm" fontWeight="bold" color={statValueColor}>
                   {stat.value}
                 </Text>
                 <Text fontSize="xs" color={textColor}>
